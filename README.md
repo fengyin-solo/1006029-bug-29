@@ -68,4 +68,9 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
-- 想回到初始数据：清掉浏览器里 `airport-ground-ops:entries` 这一项，或调用 `resetModule(模块)`。
+- 配餐交接的判定（配餐公司/交接人归属、签认、载荷、越级拦截、幂等记账、批量断点续跑）
+  统一收口在 `frontend/src/data/catering-domain.ts`；交接台账与批量断点分别落在
+  `airport-ground-ops:catering-handover-ledger`、`airport-ground-ops:catering-handover-batch`，
+  餐食份数只以台账为准，配餐页统计与航班保障待办两处同源。
+- 想回到初始数据：清掉浏览器里 `airport-ground-ops:entries` 这一项，或调用 `resetModule(模块)`
+  （重置配餐模块会一并清掉交接台账与断点）。

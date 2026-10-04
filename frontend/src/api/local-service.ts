@@ -1,9 +1,35 @@
 import { MODULE_BY_KEY } from '@/data/modules'
+import {
+  abortBatch,
+  activeBatch,
+  cateringStats,
+  confirmHandover,
+  fillPayload,
+  flightCateringView,
+  listLedger,
+  resumeBatch,
+  signHandover,
+  startBatch,
+  transition,
+} from '@/data/catering-domain'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
-import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
+import type {
+  ActionResult,
+  CateringStats,
+  ConfirmInput,
+  EntryRow,
+  FlightCateringView,
+  HandoverBatchState,
+  HandoverLedgerEntry,
+  ModuleMeta,
+  OverviewResult,
+  PageResult,
+} from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
+
+const CATERING_KEY = 'catering'
 
 export function moduleMeta(key: string): ModuleMeta {
   const meta = MODULE_BY_KEY.get(key)
@@ -28,7 +54,7 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
-export function runAction(key: string, id: number, action: string): ActionResult {
+export function runAction(key: string, id: number, action: string, payload?: ConfirmInput): ActionResult {
   const meta = moduleMeta(key)
   const target = meta.actionTargets[action]
   if (!target) {
@@ -39,7 +65,18 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (index < 0) {
     return { ok: false, message: `没有找到编号为 ${id} 的${meta.entity}` }
   }
+
+  // 配餐交接的判定全部走配餐域：公司/交接人归属、签认、载荷、越级、幂等只有这一份实现。
+  if (key === CATERING_KEY) {
+    return runCateringAction(id, action, payload ?? { company: '', handler: '' })
+  }
+
+  // 通用动作也不许越级：actionFrom 规定了动作发起时必须处在的状态。
+  const required = meta.actionFrom?.[action]
   const current = String(rows[index].status)
+  if (required && current !== required) {
+    return { ok: false, message: `${meta.entity}当前为「${current}」，「${action}」只能在「${required}」状态发起，越级操作已挡回` }
+  }
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
@@ -54,6 +91,52 @@ export function runAction(key: string, id: number, action: string): ActionResult
   next[index] = updated
   saveRows(key, next)
   return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
+}
+
+function runCateringAction(id: number, action: string, input: ConfirmInput): ActionResult {
+  if (action === '确认交接') {
+    return confirmHandover(id, input)
+  }
+  if (action === '交接签认') {
+    return signHandover(id, input.handler)
+  }
+  if (action === '补录载荷') {
+    return fillPayload(id, input.handler)
+  }
+  if (action === '开始配送' || action === '提交交接') {
+    return transition(id, action)
+  }
+  return { ok: false, message: `配餐作业没有登记「${action}」这个动作` }
+}
+
+// ---- 批量交接：整批从失败的那一条继续，已成功的靠台账幂等不重复计数 ----
+
+export function beginHandoverBatch(rowIds: number[], input: ConfirmInput): HandoverBatchState {
+  return startBatch(rowIds, input)
+}
+
+export function continueHandoverBatch(input?: ConfirmInput): HandoverBatchState | null {
+  return resumeBatch(input)
+}
+
+export function currentHandoverBatch(): HandoverBatchState | null {
+  return activeBatch()
+}
+
+export function cancelHandoverBatch(): void {
+  abortBatch()
+}
+
+export function readCateringStats(): CateringStats {
+  return cateringStats()
+}
+
+export function readHandoverLedger(): HandoverLedgerEntry[] {
+  return listLedger()
+}
+
+export function readFlightCatering(flightNo: string): FlightCateringView {
+  return flightCateringView(flightNo)
 }
 
 export function resetModule(key: string): PageResult {

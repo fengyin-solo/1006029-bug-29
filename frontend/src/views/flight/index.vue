@@ -37,6 +37,7 @@
       <thead>
         <tr>
           <th v-for="column in columns" :key="column">{{ column }}</th>
+          <th>配餐交接待办</th>
           <th>当前状态</th>
           <th>可执行动作</th>
         </tr>
@@ -44,6 +45,23 @@
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td class="catering-todo">
+            <template v-if="cateringMap.get(String(row.航班号))">
+              <p v-for="item in cateringMap.get(String(row.航班号))!.handed" :key="item.jobNo" class="todo-line">
+                <span class="badge-ok">已交接</span>
+                {{ item.jobNo }} · {{ item.company }} · {{ item.handler }} · {{ item.portions }} 份
+              </p>
+              <p v-for="item in cateringMap.get(String(row.航班号))!.pending" :key="item.jobNo" class="todo-line">
+                <span class="badge-warn">待交接</span>
+                {{ item.jobNo }} · {{ item.company }} · {{ item.portions }} 份
+              </p>
+              <p v-for="item in cateringMap.get(String(row.航班号))!.blocked" :key="item.jobNo" class="todo-line">
+                <span class="badge-danger">被拦截</span>
+                {{ item.jobNo }}：{{ item.reason }}
+              </p>
+            </template>
+            <span v-else class="text-muted">无配餐交接任务</span>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -58,7 +76,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无航班保障数据，可先登记航班保障任务</td>
+          <td :colspan="columns.length + 3" class="empty-state">暂无航班保障数据，可先登记航班保障任务</td>
         </tr>
       </tbody>
     </table>
@@ -77,11 +95,13 @@ import {
   downloadEntries,
   listEntries,
   moduleMeta,
+  readFlightCatering,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { EntryRow, FlightCateringView } from '@/data/types'
 
 const meta = moduleMeta('flight')
+// 配餐交接列单独渲染（从配餐交接台账派生），不与普通字段列混排。
 const columns = ["保障编号", "航班号", "机型", "计划到达", "机位号", "保障等级", "保障班组", "保障状态"]
 const actions = ["接收任务", "开始保障", "确认完成"]
 const statuses = ["待接收", "保障中", "保障完成", "已终止"]
@@ -98,6 +118,17 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+// 配餐交接待办按航班号归并：份数取自配餐交接台账，和配餐页是同一份数据。
+const cateringMap = computed(() => {
+  const map = new Map<string, FlightCateringView>()
+  for (const row of rows.value) {
+    const flightNo = String(row.航班号 ?? '')
+    if (!map.has(flightNo)) {
+      map.set(flightNo, readFlightCatering(flightNo))
+    }
+  }
+  return map
+})
 
 function resetFilters() {
   filters.value = {}
