@@ -63,8 +63,46 @@
       </tbody>
     </table>
 
+    <section class="todo-section">
+      <header class="todo-head">
+        <h3>配餐交接待办</h3>
+        <span class="page-desc">由配餐确认交接台账派生；份数直接取配餐作业记录，与航空配餐页两处同源。</span>
+        <button class="btn" type="button" @click="reloadTodos">刷新待办</button>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>作业编号</th>
+            <th>航班号</th>
+            <th>配餐公司</th>
+            <th>交接人</th>
+            <th>餐食份数</th>
+            <th>交接时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="todo in cateringTodos" :key="todo.jobNo" :class="{ 'row-abnormal': todo.missingSource }">
+            <td>{{ todo.jobNo }}</td>
+            <td>{{ todo.flightNo }}</td>
+            <td>{{ todo.company }}</td>
+            <td>{{ todo.handler }}</td>
+            <td>{{ todo.portions === null ? '作业记录缺失' : todo.portions }}</td>
+            <td>{{ formatTime(todo.handedAt) }}</td>
+            <td class="row-actions">
+              <button class="link" type="button" @click="receiveTodo(todo.jobNo)">确认接收</button>
+            </td>
+          </tr>
+          <tr v-if="!cateringTodos.length">
+            <td colspan="7" class="empty-state">暂无待接收的配餐交接</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="todoMessage" class="todo-message" :class="{ 'error-text': !todoOk }">{{ todoMessage }}</p>
+    </section>
+
     <footer class="page-foot">
-      <span>共 {{ total }} 条航班保障记录</span>
+      <span>共 {{ total }} 条航班保障记录 · 待接收配餐交接 {{ cateringTodos.length }} 条，合计 {{ handedPortions }} 份</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -74,12 +112,13 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  catering,
   downloadEntries,
   listEntries,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
-import type { EntryRow } from '@/data/types'
+import type { EntryRow, FlightCateringTodo } from '@/data/types'
 
 const meta = moduleMeta('flight')
 const columns = ["保障编号", "航班号", "机型", "计划到达", "机位号", "保障等级", "保障班组", "保障状态"]
@@ -98,6 +137,18 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+const cateringTodos = ref<FlightCateringTodo[]>([])
+const todoMessage = ref('')
+const todoOk = ref(true)
+const handedPortions = computed(() =>
+  cateringTodos.value.reduce((sum, todo) => sum + (todo.portions ?? 0), 0),
+)
+
+function formatTime(stamp: string): string {
+  const time = new Date(stamp)
+  return Number.isNaN(time.getTime()) ? stamp : time.toLocaleString('zh-CN', { hour12: false })
+}
 
 function resetFilters() {
   filters.value = {}
@@ -122,6 +173,13 @@ function runAction(action: string, row: EntryRow) {
   reload()
 }
 
+function receiveTodo(jobNo: string) {
+  const result = catering.receiveFlightTodo(jobNo)
+  todoOk.value = result.ok
+  todoMessage.value = result.message
+  reloadTodos()
+}
+
 function reload() {
   errorMessage.value = ''
   try {
@@ -133,5 +191,17 @@ function reload() {
   }
 }
 
-onMounted(reload)
+function reloadTodos() {
+  try {
+    cateringTodos.value = catering.flightCateringTodos()
+  } catch (error) {
+    todoOk.value = false
+    todoMessage.value = error instanceof Error ? error.message : '配餐交接待办读取失败'
+  }
+}
+
+onMounted(() => {
+  reload()
+  reloadTodos()
+})
 </script>
